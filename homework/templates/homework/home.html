@@ -1,0 +1,72 @@
+{% extends 'homework/base.html' %}
+
+{% block title %}Dashboard - Homework Management{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Dashboard</h1>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-tasks"></i> My Assignments</h5>
+                </div>
+                <div class="card-body">
+                    {% if my_assignments %}
+                    <ul class="list-group list-group-flush">
+                        {% for homework in my_assignments %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1">{{ homework.title }}</h6>
+                                <small class="text-muted">{{ homework.subject.name }}</small>
+                            </div>
+                            <div>
+                                {% if homework.is_overdue %}
+                                <span class="badge bg-danger">Overdue</span>
+                                {% else %}
+                                <span class="badge bg-warning">{{ homework.days_remaining }} days</span>
+                                {% endif %}
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <div class="mt-3">
+                        <a href="{% url 'homework_list' %}" class="btn btn-primary btn-sm">View All</a>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No assignments yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-check-circle"></i> Pending Submissions</h5>
+                </div>
+                <div class="card-body">
+                    {% if pending_submissions %}
+                    <ul class="list-group list-group-flush">
+                        {% for submission in pending_submissions %}
+                        <li class="list-group-item">
+                            <h6 class="mb-1">{{ submission.homework.title }}</h6>
+                            <small class="text-muted">
+                                Submitted: {{ submission.submitted_at|date:"M d, Y H:i" }}
+                            </small>
+                            {% if submission.is_late %}
+                            <span class="badge bg-danger">Late</span>
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted">No pending submissions.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+:root {
+  --primary-color: #1976d2;
+  --secondary-color: #dc004e;
+  --success-color: #4caf50;
+  --error-color: #f44336;
+  --warning-color: #ff9800;
+  --info-color: #2196f3;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Roboto', sans-serif;
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+#root {
+  display: flex;
+}
