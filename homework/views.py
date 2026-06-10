@@ -1,88 +1,81 @@
-"""Views for homework management app."""
-
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView, DetailView, CreateView, UpdateView
-from django.urls import reverse_lazy
-from django.db.models import Q
-from .models import Homework, Subject, Submission
-from .forms import HomeworkForm, SubmissionForm
+from rest_framework import viewsets, permissions, filters, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
+from .models import Homework
+from .serializers import HomeworkSerializer, HomeworkDetailSerializer
+from accounts.permissions import IsAdminRole, IsTeacherRole, IsStudentRole
+from notifications.utils import create_notification
 
 
-@login_required
-def home(request):
-    """Home page showing homework dashboard."""
-    my_assignments = Homework.objects.filter(assigned_to=request.user).order_by('-due_date')[:5]
-    pending_submissions = Submission.objects.filter(
-        student=request.user,
-        status='submitted'
-    ).select_related('homework').order_by('-submitted_at')[:5]
-    
-    context = {
-        'my_assignments': my_assignments,
-        'pending_submissions': pending_submissions,
-    }
-    return render(request, 'homework/home.html', context)
+class HomeworkViewSet(viewsets.ModelViewSet):
+    queryset = Homework.objects.select_related('subject', 'school_class', 'teacher').all()
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'category', 'subject', 'school_class']
+    search_fields = ['title', 'description']
+    ordering_fields = ['due_date', 'created_at', 'total_marks']
+    ordering = ['-created_at']
 
+    def get_serializer_class(self):
+        if self.action in ['retrieve']:
+            return HomeworkDetailSerializer
+        return HomeworkSerializer
 
-class HomeworkListView(LoginRequiredMixin, ListView):
-    """List all homeworks assigned to the user."""
-    model = Homework
-    template_name = 'homework/homework_list.html'
-    context_object_name = 'homeworks'
-    paginate_by = 10
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'publish', 'duplicate']:
+            return [IsTeacherRole() if not IsAdminRole().has_permission(self.request, self) else IsAdminRole()]
+        return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        return Homework.objects.filter(assigned_to=self.request.user).select_related('subject')
+        user = self.request.user
+        qs = super().get_queryset()
+        if user.role == 'student':
+            # Students only see PUBLISHED homework assigned to them
+            return qs.filter(assigned_to=user, status='PUBLISHED')
+        elif user.role == 'teacher':
+            # Teachers see their own homework
+            return qs.filter(teacher=user)
+        return qs  # Admins see everything
 
+    def perform_create(self, serializer):
+        homework = serializer.save(teacher=self.request.user)
+        # Notify assigned students
+        for student in homework.assigned_to.all():
+            create_notification(
+                user=student,
+                title="New Homework Assigned",
+                message=f"You have been assigned: {homework.title}. Due: {homework.due_date.strftime('%Y-%m-%d')}"
+            )
 
-class HomeworkDetailView(LoginRequiredMixin, DetailView):
-    """Display details of a specific homework."""
-    model = Homework
-    template_name = 'homework/homework_detail.html'
-    context_object_name = 'homework'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+    @action(detail=True, methods=['post'], permission_classes=[IsTeacherRole])
+    def publish(self, request, pk=None):
         homework = self.get_object()
-        try:
-            submission = Submission.objects.get(homework=homework, student=self.request.user)
-            context['submission'] = submission
-        except Submission.DoesNotExist:
-            context['submission'] = None
-        return context
+        homework.status = 'PUBLISHED'
+        homework.save()
+        # Notify all assigned students
+        for student in homework.assigned_to.all():
+            create_notification(
+                user=student,
+                title="Homework Published",
+                message=f"'{homework.title}' has been published. Due: {homework.due_date.strftime('%Y-%m-%d')}"
+            )
+        return Response({'message': 'Homework published successfully.'})
 
+    @action(detail=True, methods=['post'], permission_classes=[IsTeacherRole])
+    def close(self, request, pk=None):
+        homework = self.get_object()
+        homework.status = 'CLOSED'
+        homework.save()
+        return Response({'message': 'Homework closed.'})
 
-class HomeworkCreateView(LoginRequiredMixin, CreateView):
-    """Create a new homework assignment."""
-    model = Homework
-    form_class = HomeworkForm
-    template_name = 'homework/homework_form.html'
-    success_url = reverse_lazy('homework_list')
-
-    def form_valid(self, form):
-        form.instance.assigned_by = self.request.user
-        return super().form_valid(form)
-
-
-class SubmissionCreateView(LoginRequiredMixin, CreateView):
-    """Submit homework by a student."""
-    model = Submission
-    form_class = SubmissionForm
-    template_name = 'homework/submission_form.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        homework_id = self.kwargs.get('homework_id')
-        context['homework'] = get_object_or_404(Homework, id=homework_id)
-        return context
-
-    def form_valid(self, form):
-        homework = get_object_or_404(Homework, id=self.kwargs.get('homework_id'))
-        form.instance.homework = homework
-        form.instance.student = self.request.user
-        return super().form_valid(form)
-
-    def get_success_url(self):
-        return reverse_lazy('homework_detail', kwargs={'pk': self.kwargs.get('homework_id')})
+    @action(detail=True, methods=['post'], permission_classes=[IsTeacherRole])
+    def duplicate(self, request, pk=None):
+        homework = self.get_object()
+        original_assigned = list(homework.assigned_to.all())
+        homework.pk = None
+        homework.title = f"Copy of {homework.title}"
+        homework.status = 'DRAFT'
+        homework.save()
+        homework.assigned_to.set(original_assigned)
+        serializer = HomeworkSerializer(homework, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

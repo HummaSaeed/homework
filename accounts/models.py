@@ -29,23 +29,37 @@ class User(AbstractUser):
 
 class TeacherProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='teacher_profile')
-    assigned_classes = models.ManyToManyField('classes.SchoolClass', blank=True)
+    employee_id = models.CharField(max_length=50, blank=True, unique=True, null=True)
     qualification = models.CharField(max_length=255, blank=True)
-    subject_specialization = models.CharField(max_length=255, blank=True)
+    designation = models.CharField(max_length=100, blank=True)
+    experience = models.CharField(max_length=50, blank=True)  # e.g. "5 years"
+    assigned_classes = models.ManyToManyField('classes.SchoolClass', blank=True)
+    assigned_subjects = models.ManyToManyField('subjects.Subject', blank=True)
 
     def __str__(self):
-        return f"Teacher: {self.user}"
+        return f"Teacher: {self.user.full_name or self.user.username}"
 
 
 class StudentProfile(models.Model):
+    GENDER_CHOICES = (
+        ('male', 'Male'),
+        ('female', 'Female'),
+        ('other', 'Other'),
+    )
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='student_profile')
     roll_number = models.CharField(max_length=50, blank=True)
+    father_name = models.CharField(max_length=255, blank=True)
+    mother_name = models.CharField(max_length=255, blank=True)
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True)
+    date_of_birth = models.DateField(null=True, blank=True)
     school_class = models.ForeignKey('classes.SchoolClass', on_delete=models.SET_NULL, null=True, blank=True, related_name='students')
     section = models.CharField(max_length=50, blank=True)
     parent_phone = models.CharField(max_length=32, blank=True, null=True)
+    admission_date = models.DateField(null=True, blank=True)
 
     def __str__(self):
-        return f"Student: {self.user}"
+        return f"Student: {self.user.full_name or self.user.username}"
 
 
 class PhoneOTP(models.Model):
